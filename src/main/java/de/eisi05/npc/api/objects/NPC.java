@@ -551,7 +551,7 @@ public class NPC extends NpcHolder
 
         List<Packet<?>> packets = new ArrayList<>();
 
-        Arrays.stream(NpcOption.values()).filter(NpcOption::loadBefore)
+        Arrays.stream(NpcOption.values()).filter(option -> option.loadBefore() && shouldSendOption(option))
                 .forEach(npcOption -> npcOption.getPacket(getOption(npcOption), this, player).ifPresent(o -> packets.add((Packet<?>) o)));
 
         packets.add(ClientboundPlayerInfoUpdatePacket.createSinglePlayerInitializing(serverPlayer, true));
@@ -581,7 +581,7 @@ public class NPC extends NpcHolder
             packets.add(new ClientboundSetPassengersPacket(serverPlayer));
         }
 
-        Arrays.stream(NpcOption.values()).filter(npcOption -> !npcOption.equals(NpcOption.ENABLED))
+        Arrays.stream(NpcOption.values()).filter(npcOption -> !npcOption.equals(NpcOption.ENABLED) && shouldSendOption(npcOption))
                 .forEach(npcOption -> npcOption.getPacket(getOption(npcOption), this, player).map(o -> (Packet<?>) o)
                         .ifPresent(packets::add));
 
@@ -590,6 +590,16 @@ public class NPC extends NpcHolder
         ServerGamePacketListenerImpl connection = ((CraftPlayer) player).getHandle().connection;
         packets.forEach(connection::send);
         serverPlayer.refreshEntityData(((CraftPlayer) player).getHandle());
+    }
+
+    private boolean shouldSendOption(NpcOption option) {
+        if (option == NpcOption.ENABLED) {
+            return false;
+        }
+        if (serverPlayer.isSleeping()) {
+            return option == NpcOption.POSE;
+        }
+        return true;
     }
 
     public void sleepInBed(Location bed) {
