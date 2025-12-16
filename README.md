@@ -9,6 +9,11 @@
 A powerful and easy-to-use NPC (Non-Player Character) API for Minecraft Spigot plugins that allows you to create, manage, and customize NPCs with
 advanced features.
 
+## Wiki
+
+See the in-repo wiki pages under:
+[📚 Project Wiki](https://github.com/Eisi05/NpcApi-Paper/wiki)
+
 ## Features
 
 - 🎭 Create custom NPCs with ease
@@ -38,7 +43,7 @@ This method requires [NpcPlugin-Paper](https://modrinth.com/plugin/npc-plugin?lo
 <dependency>
     <groupId>com.github.Eisi05</groupId>
     <artifactId>NpcApi-Paper</artifactId>
-    <version>1.21.x-15</version>
+    <version>1.21.x-16</version>
     <scope>provided</scope>
 </dependency>
 ```
@@ -54,7 +59,7 @@ dependencyResolutionManagement {
 }
 
 dependencies {
-    compileOnly 'com.github.Eisi05:NpcApi-Paper:1.21.x-15'
+    compileOnly 'com.github.Eisi05:NpcApi-Paper:1.21.x-16'
 }
 ```
 
@@ -93,7 +98,7 @@ Add the repository and dependency to your `pom.xml`:
    	<dependency>
 	    <groupId>com.github.Eisi05</groupId>
 	    <artifactId>NpcApi-Paper</artifactId>
-	    <version>1.21.x-15</version>
+	    <version>1.21.x-16</version>
 	</dependency>
 </dependencies>
 ```
@@ -110,7 +115,7 @@ dependencyResolutionManagement {
 }
 
 dependencies {
-    implementation 'com.github.Eisi05:NpcApi-Paper:1.21.x-15'
+    implementation 'com.github.Eisi05:NpcApi-Paper:1.21.x-16'
 }
 ```
 
