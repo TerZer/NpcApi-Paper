@@ -20,6 +20,7 @@ import de.eisi05.npc.api.wrapper.packets.SetPlayerTeamPacket;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.serializer.json.JSONComponentSerializer;
 import net.kyori.adventure.text.serializer.plain.PlainTextComponentSerializer;
+import net.minecraft.core.BlockPos;
 import net.minecraft.network.Connection;
 import net.minecraft.network.protocol.Packet;
 import net.minecraft.network.protocol.PacketFlow;
@@ -42,6 +43,8 @@ import org.bukkit.Bukkit;
 import org.bukkit.Location;
 import org.bukkit.OfflinePlayer;
 import org.bukkit.World;
+import org.bukkit.block.Block;
+import org.bukkit.block.data.type.Bed;
 import org.bukkit.craftbukkit.CraftServer;
 import org.bukkit.craftbukkit.CraftWorld;
 import org.bukkit.craftbukkit.entity.CraftPlayer;
@@ -585,6 +588,62 @@ public class NPC extends NpcHolder
 
         ServerGamePacketListenerImpl connection = ((CraftPlayer) player).getHandle().connection;
         packets.forEach(connection::send);
+        serverPlayer.refreshEntityData(((CraftPlayer) player).getHandle());
+    }
+
+    public void sleepInBed(Location bed) {
+        if (!location.getWorld().equals(bed.getWorld())) return;
+
+        Block block = bed.getBlock();
+        if (!(block.getBlockData() instanceof Bed bedData)) return;
+
+        Location headLoc = bed.clone();
+        if (bedData.getPart() == Bed.Part.FOOT) {
+            headLoc.add(bedData.getFacing().getModX(), 0, bedData.getFacing().getModZ());
+        }
+
+        Block headBlock = headLoc.getBlock();
+        if (!(headBlock.getBlockData() instanceof Bed headData)
+                || headData.getPart() != Bed.Part.HEAD) {
+            return;
+        }
+
+        serverPlayer.startSleeping(new BlockPos(
+                headLoc.getBlockX(),
+                headLoc.getBlockY(),
+                headLoc.getBlockZ()
+        ));
+        setLocation(location.set(
+                serverPlayer.getX(),
+                serverPlayer.getY() - 1,
+                serverPlayer.getZ()
+        ));
+
+        for (UUID uuid : viewers) {
+            OfflinePlayer offlinePlayer = Bukkit.getOfflinePlayer(uuid);
+            if (!offlinePlayer.isOnline()) continue;
+
+            ServerPlayer viewer =
+                    ((CraftPlayer) offlinePlayer.getPlayer()).getHandle();
+            serverPlayer.refreshEntityData(viewer);
+        }
+    }
+
+    public void stopSleeping() {
+        if (serverPlayer.isSleeping()) {
+            serverPlayer.stopSleeping();
+            setLocation(location.set(serverPlayer.getX(), serverPlayer.getY()-1, serverPlayer.getZ()));
+
+            for(UUID uuid : viewers)
+            {
+                OfflinePlayer offlinePlayer = Bukkit.getOfflinePlayer(uuid);
+                if(!offlinePlayer.isOnline())
+                    continue;
+
+                ServerPlayer viewer = ((CraftPlayer) offlinePlayer.getPlayer()).getHandle();
+                serverPlayer.refreshEntityData(viewer);
+            }
+        }
     }
 
     /**
