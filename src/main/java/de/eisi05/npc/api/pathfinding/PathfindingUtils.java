@@ -59,30 +59,34 @@ public class PathfindingUtils
     public static @NotNull Path findPath(@NotNull List<Location> waypoints, int maxIterations, boolean allowDiagonalMovement,
             @Nullable BiConsumer<Integer, Integer> progressListener) throws PathfindingException
     {
-        if(waypoints.size() < 2)
+        if (waypoints.size() < 2)
             throw new IllegalArgumentException("Waypoints list must contain at least 2 locations.");
 
         List<Location> fullPathPoints = new ArrayList<>();
 
         AStarPathfinder aStar = new AStarPathfinder(maxIterations, allowDiagonalMovement);
-        for(int i = 0; i < waypoints.size() - 1; i++)
+
+        for (int i = 0; i < waypoints.size() - 1; i++)
         {
             Location start = waypoints.get(i);
             Location end = waypoints.get(i + 1);
 
             List<Location> segment = aStar.getPath(start, end);
 
-            if(segment == null)
+            if (segment == null)
                 throw new PathfindingException("Could not find path between waypoint " + i + " and " + (i + 1));
 
-            if(!fullPathPoints.isEmpty() && !segment.isEmpty() && isAbove(segment.getFirst(), fullPathPoints.getLast()))
+            // Avoid duplicate points when chaining segments
+            if (!fullPathPoints.isEmpty() && !segment.isEmpty()
+                    && segment.getFirst().getWorld() == fullPathPoints.getLast().getWorld()
+                    && segment.getFirst().distanceSquared(fullPathPoints.getLast()) < 1e-6)
+            {
                 segment.removeFirst();
-            else if(!segment.isEmpty())
-                segment.set(0, segment.getFirst().subtract(0, 1, 0));
+            }
 
             fullPathPoints.addAll(segment);
 
-            if(progressListener != null)
+            if (progressListener != null)
                 progressListener.accept(i + 1, waypoints.size() - 1);
         }
 

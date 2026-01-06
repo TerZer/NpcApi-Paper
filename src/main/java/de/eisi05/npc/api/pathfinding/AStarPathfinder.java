@@ -7,6 +7,7 @@ import org.bukkit.World;
 import org.bukkit.block.Block;
 import org.bukkit.block.BlockFace;
 import org.bukkit.block.data.Openable;
+import org.bukkit.util.BoundingBox;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -27,24 +28,32 @@ public class AStarPathfinder
         this.allowDiagonal = allowDiagonal;
     }
 
-    public @Nullable List<Location> getPath(@NotNull Location start, @NotNull Location end) throws PathfindingUtils.PathfindingException
+    public @Nullable List<Location> getPath(@NotNull Location start, @NotNull Location end)
+            throws PathfindingUtils.PathfindingException
     {
-        if(!start.getWorld().equals(end.getWorld()))
+        if (start.getWorld() == null || end.getWorld() == null)
+            return null;
+
+        if (!start.getWorld().equals(end.getWorld()))
             return null;
 
         openSet.clear();
         allNodes.clear();
         this.world = start.getWorld();
 
-        Block startFloor = world.getBlockAt(start.getBlockX(), start.getBlockY() - 1, start.getBlockZ());
-        if(!isSafeFloor(startFloor))
+        // Resolve integer FLOOR Y for start/end from feet-based locations (supports stairs/slabs)
+        int startFloorY = resolveFloorY(start);
+        int endFloorY   = resolveFloorY(end);
+
+        Block startFloor = world.getBlockAt(start.getBlockX(), startFloorY, start.getBlockZ());
+        if (!isSafeFloor(startFloor))
             throw new PathfindingUtils.PathfindingException("Start not on a valid floor: " + start);
 
-        Block endFloor = world.getBlockAt(end.getBlockX(), end.getBlockY() - 1, end.getBlockZ());
-        if(!isSafeFloor(endFloor))
+        Block endFloor = world.getBlockAt(end.getBlockX(), endFloorY, end.getBlockZ());
+        if (!isSafeFloor(endFloor))
             throw new PathfindingUtils.PathfindingException("End not on a valid floor: " + end);
 
-        Node startNode = new Node(start.getBlockX(), start.getBlockY(), start.getBlockZ(), null);
+        Node startNode = new Node(start.getBlockX(), startFloorY, start.getBlockZ(), null);
         startNode.gCost = 0;
         startNode.calculateH(end);
 
@@ -53,70 +62,77 @@ public class AStarPathfinder
 
         int iterations = 0;
 
-        while(!openSet.isEmpty())
+        while (!openSet.isEmpty())
         {
-            if(iterations > maxIterations)
+            if (iterations > maxIterations)
                 return null;
 
             iterations++;
 
             Node current = openSet.poll();
 
-            if(distance(current, end) < 2)
+            if (distanceSq(current, end) < 1.0)
                 return retracePath(current);
 
             current.closed = true;
 
-            for(int x = -1; x <= 1; x++)
+            for (int x = -1; x <= 1; x++)
             {
-                for(int y = -1; y <= 1; y++)
+                for (int y = -1; y <= 1; y++)
                 {
-                    for(int z = -1; z <= 1; z++)
+                    for (int z = -1; z <= 1; z++)
                     {
-                        if(x == 0 && y == 0 && z == 0)
+                        if (x == 0 && y == 0 && z == 0)
                             continue;
 
-                        if(!allowDiagonal && (Math.abs(x) + Math.abs(z) > 1.5))
+                        // Only restrict diagonal on X/Z plane (y movement still allowed)
+                        if (!allowDiagonal && (Math.abs(x) + Math.abs(z) > 1))
                             continue;
 
                         int targetX = current.x + x;
-                        int targetY = current.y + y;
+                        int targetY = current.y + y; // FLOOR Y changes by y
                         int targetZ = current.z + z;
 
-                        if(!canWalk(current.x, current.y, current.z, targetX, targetY, targetZ))
+                        if (!canWalk(current.x, current.y, current.z, targetX, targetY, targetZ))
                             continue;
 
                         long id = Node.hash(targetX, targetY, targetZ);
-                        Node neighbor = allNodes.getOrDefault(id, new Node(targetX, targetY, targetZ, id));
+                        Node neighbor = allNodes.get(id);
+                        if (neighbor == null)
+                        {
+                            neighbor = new Node(targetX, targetY, targetZ, id);
+                            allNodes.put(id, neighbor);
+                        }
 
-                        if(neighbor.closed)
+                        if (neighbor.closed)
                             continue;
 
-                        double moveCost = (Math.abs(x) + Math.abs(y) + Math.abs(z)) > 1 ? 1.414 : 1.0;
+                        double moveCost = (Math.abs(x) + Math.abs(y) + Math.abs(z)) > 1 ? 1.41421356237 : 1.0;
                         double newGCost = current.gCost + moveCost;
 
-                        if(newGCost < neighbor.gCost || !openSet.contains(neighbor))
+                        if (newGCost < neighbor.gCost || !openSet.contains(neighbor))
                         {
                             neighbor.gCost = newGCost;
                             neighbor.calculateH(end);
                             neighbor.parent = current;
 
-                            if(!openSet.contains(neighbor))
-                            {
+                            if (!openSet.contains(neighbor))
                                 openSet.add(neighbor);
-                                allNodes.put(id, neighbor);
-                            }
                         }
                     }
                 }
             }
         }
+
         return null;
     }
 
     /**
      * Advanced physics check.
      * Checks if we can move from (fx, fy, fz) to (tx, ty, tz).
+     *
+     * Here fy/ty are FLOOR Y (block you stand on),
+     * and feet/head occupy ty+1 and ty+2.
      */
     private boolean canWalk(int fx, int fy, int fz, int tx, int ty, int tz)
     {
@@ -124,17 +140,18 @@ public class AStarPathfinder
         Block spaceFeet = world.getBlockAt(tx, ty + 1, tz);
         Block spaceHead = world.getBlockAt(tx, ty + 2, tz);
 
-        if(!isSafeFloor(floor))
+        if (!isSafeFloor(floor))
             return false;
 
-        if(isSolid(spaceFeet) || isSolid(spaceHead))
+        if (isSolid(spaceFeet) || isSolid(spaceHead))
             return false;
 
-        if(fx != tx && fz != tz)
+        // Corner cutting check for diagonal movement in X/Z
+        if (fx != tx && fz != tz)
         {
             Block checkA = world.getBlockAt(fx, ty + 1, tz);
             Block checkB = world.getBlockAt(tx, ty + 1, fz);
-            if(isSolid(checkA) || isSolid(checkB))
+            if (isSolid(checkA) || isSolid(checkB))
                 return false;
         }
 
@@ -142,45 +159,103 @@ public class AStarPathfinder
     }
 
     /**
-     * Checks if a block is valid to stand ON.
+     * Resolve the integer FLOOR Y (block you stand on) from a feet-based Location,
+     * using collision boxes to correctly handle stairs/slabs/partial blocks.
+     */
+    private int resolveFloorY(@NotNull Location loc)
+    {
+        World w = loc.getWorld();
+        if (w == null)
+            return loc.getBlockY() - 1;
+
+        int bx = loc.getBlockX();
+        int bz = loc.getBlockZ();
+        int startY = loc.getBlockY();
+
+        // local coordinates inside block column [0..1)
+        double lx = loc.getX() - bx;
+        double lz = loc.getZ() - bz;
+
+        // Search downward to find a solid floor candidate
+        for (int y = startY + 1; y >= startY - 6; y--)
+        {
+            Block block = w.getBlockAt(bx, y, bz);
+
+            if (block.getBlockData() instanceof Openable)
+                continue;
+
+            if (block.isLiquid())
+                continue;
+
+            // must be non-passable solid-ish for floor
+            if (!block.getType().isSolid() || block.isPassable())
+                continue;
+
+            // If it has collision, accept it as floor
+            var boxes = block.getCollisionShape().getBoundingBoxes();
+            if (boxes.isEmpty())
+                return y;
+
+            // Prefer collision boxes that cover our x/z, otherwise fallback to accepting block
+            for (BoundingBox bb : boxes)
+            {
+                if (lx >= bb.getMinX() && lx <= bb.getMaxX()
+                        && lz >= bb.getMinZ() && lz <= bb.getMaxZ())
+                {
+                    return y;
+                }
+            }
+
+            // Edge case: standing on boundary -> still accept this block as floor
+            return y;
+        }
+
+        // Fallback: assume floor is one below current blockY
+        return loc.getBlockY() - 1;
+    }
+
+    /**
+     * Checks if a block is valid to stand ON (floor).
      */
     private boolean isSafeFloor(Block block)
     {
-        if(block == null)
+        if (block == null)
             return false;
 
         Material type = block.getType();
-        if(type.isAir() || block.isLiquid())
+        if (type.isAir() || block.isLiquid())
             return false;
 
-        if(block.isPassable())
+        if (block.isPassable())
             return false;
 
         return true;
     }
+
 
     /**
      * Checks if a block obstructs movement (is a wall).
      */
     private boolean isSolid(Block block)
     {
-        if(block == null)
+        if (block == null)
             return false;
 
         Material type = block.getType();
-        if(type.isAir())
+        if (type.isAir())
             return false;
 
-        if(Var.isCarpet(type) && Var.isCarpet(block.getRelative(BlockFace.UP).getType()))
+        // Keep your carpet rules as-is
+        if (Var.isCarpet(type) && Var.isCarpet(block.getRelative(BlockFace.UP).getType()))
             return true;
 
-        if(Var.isCarpet(type))
+        if (Var.isCarpet(type))
             return false;
 
-        if(block.isPassable())
+        if (block.isPassable())
             return false;
 
-        if(block.getBlockData() instanceof Openable)
+        if (block.getBlockData() instanceof Openable)
             return false;
 
         return true;
@@ -189,27 +264,30 @@ public class AStarPathfinder
     private @NotNull List<Location> retracePath(@NotNull Node current)
     {
         List<Location> path = new ArrayList<>();
-        while(current != null)
+        while (current != null)
         {
-            path.add(new Location(world, current.x + 0.5, current.y, current.z + 0.5));
+            // Node.y is FLOOR Y; feet are at floorY + 1
+            path.add(new Location(world, current.x + 0.5, current.y + 1.0, current.z + 0.5));
             current = current.parent;
         }
         Collections.reverse(path);
         return path;
     }
 
-    private double distance(@NotNull Node n, @NotNull Location l)
+    /**
+     * Squared distance from node (center at feet level) to a Location (feet-based).
+     */
+    private double distanceSq(@NotNull Node n, @NotNull Location l)
     {
-        double dx = (n.x + 0.5) - l.getBlockX();
-        double dy = n.y - l.getBlockY();
-        double dz = (n.z + 0.5) - l.getBlockZ();
-
+        double dx = (n.x + 0.5) - l.getX();
+        double dy = (n.y + 1.0) - l.getY(); // node feet Y
+        double dz = (n.z + 0.5) - l.getZ();
         return dx * dx + dy * dy + dz * dz;
     }
 
     private static class Node implements Comparable<Node>
     {
-        final int x, y, z;
+        final int x, y, z; // y = FLOOR Y
         final long id;
 
         double gCost = Double.MAX_VALUE;
@@ -227,12 +305,18 @@ public class AStarPathfinder
 
         public static long hash(int x, int y, int z)
         {
-            return ((long) x & 0x3FFFFFF) | (((long) z & 0x3FFFFFF) << 26) | (((long) y & 0xFFF) << 52);
+            return ((long) x & 0x3FFFFFF)
+                    | (((long) z & 0x3FFFFFF) << 26)
+                    | (((long) y & 0xFFF) << 52);
         }
 
         public void calculateH(@NotNull Location end)
         {
-            this.hCost = Math.hypot(Math.hypot(x - end.getBlockX(), y - end.getBlockY()), z - end.getBlockZ());
+            // heuristic from node feet to end feet (use doubles for stability)
+            double dx = (x + 0.5) - end.getX();
+            double dy = (y + 1.0) - end.getY();
+            double dz = (z + 0.5) - end.getZ();
+            this.hCost = Math.sqrt(dx * dx + dy * dy + dz * dz);
         }
 
         public double getFCost()
@@ -244,6 +328,20 @@ public class AStarPathfinder
         public int compareTo(@NotNull Node other)
         {
             return Double.compare(this.getFCost(), other.getFCost());
+        }
+
+        @Override
+        public boolean equals(Object o)
+        {
+            if (this == o) return true;
+            if (!(o instanceof Node node)) return false;
+            return id == node.id;
+        }
+
+        @Override
+        public int hashCode()
+        {
+            return Long.hashCode(id);
         }
     }
 }

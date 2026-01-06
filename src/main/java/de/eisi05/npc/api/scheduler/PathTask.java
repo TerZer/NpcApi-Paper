@@ -37,7 +37,7 @@ public class PathTask extends BukkitRunnable
     private static final double gravity = -0.08;
     private static final double jumpVelocity = 0.5;
     private static final double terminalVelocity = -0.5;
-    private static final double stepHeight = -0.5;
+    private static final double stepHeight = 0.5;
 
     private final NPC npc;
     private final Path path;
@@ -330,48 +330,54 @@ public class PathTask extends BukkitRunnable
     private @NotNull PhysicsResult applyPhysics(Vector movement, Vector toTarget)
     {
         World world = npc.getLocation().getWorld();
-        if(world == null)
+        if (world == null)
             return new PhysicsResult(0, false);
 
         double groundY = getGroundY(world, currentPos);
-        boolean onGround = currentPos.getY() <= groundY + 1e-5;
-        double yChange = 0;
+        boolean onGround = currentPos.getY() <= groundY + 1e-4;
 
-        if(onGround)
+        double yChange = 0.0;
+
+        if (onGround)
         {
-            if(toTarget.getY() > 0 && toTarget.getY() <= stepHeight && movement.lengthSquared() > 1e-6)
+            // Step-up (stairs/slabs)
+            if (toTarget.getY() > 1e-4 && toTarget.getY() <= stepHeight && movement.lengthSquared() > 1e-6)
             {
                 yChange = Math.min(toTarget.getY(), stepHeight);
-                verticalVelocity = 0;
+                verticalVelocity = 0.0;
                 return new PhysicsResult(yChange, true);
             }
-            else if(toTarget.getY() > 0.5)
+
+            // Need a real jump
+            if (toTarget.getY() > stepHeight + 1e-3)
             {
                 verticalVelocity = jumpVelocity;
                 onGround = false;
             }
             else
             {
-                verticalVelocity = 0;
-                if(Math.abs(currentPos.getY() - groundY) > 1e-6)
+                // Snap to ground and stay grounded
+                verticalVelocity = 0.0;
+                if (Math.abs(currentPos.getY() - groundY) > 1e-5)
                     currentPos.setY(groundY);
-                return new PhysicsResult(0, true);
+
+                return new PhysicsResult(0.0, true);
             }
         }
 
-        if(!onGround)
-        {
-            verticalVelocity += gravity;
-            if(verticalVelocity < terminalVelocity)
-                verticalVelocity = terminalVelocity;
-            yChange = verticalVelocity;
+        // Airborne physics
+        verticalVelocity += gravity;
+        if (verticalVelocity < terminalVelocity)
+            verticalVelocity = terminalVelocity;
 
-            if(currentPos.getY() + yChange <= groundY)
-            {
-                yChange = groundY - currentPos.getY();
-                verticalVelocity = 0;
-                onGround = true;
-            }
+        yChange = verticalVelocity;
+
+        // Collision with ground
+        if (currentPos.getY() + yChange <= groundY)
+        {
+            yChange = groundY - currentPos.getY();
+            verticalVelocity = 0.0;
+            onGround = true;
         }
 
         return new PhysicsResult(yChange, onGround);
@@ -390,24 +396,58 @@ public class PathTask extends BukkitRunnable
         int bz = pos.getBlockZ();
         int startY = pos.getBlockY();
 
-        for(int y = startY; y >= startY - 3; y--)
+        // local coords inside the block [0..1)
+        double lx = pos.getX() - bx;
+        double lz = pos.getZ() - bz;
+
+        // Search down a few blocks to find ground
+        for (int y = startY; y >= startY - 6; y--)
         {
             Block block = world.getBlockAt(bx, y, bz);
 
-            if(block.getBlockData() instanceof Openable)
+            // ignore openables (doors etc.)
+            if (block.getBlockData() instanceof Openable)
                 continue;
 
-            if(Var.isCarpet(block.getType()) && Var.isCarpet(block.getRelative(BlockFace.UP).getType()))
-                return ++y;
+            // air/passable is NOT ground; keep searching downward
+            if (!block.getType().isSolid() || block.isPassable())
+                continue;
 
-            if(!block.getType().isSolid() || block.isPassable())
-                return y;
+            // Optional: carpet handling if you want (standing on top of carpet)
+            if (Var.isCarpet(block.getType()))
+            {
+                // carpet collision is tiny; treat as y + 1.0 (top surface)
+                return y + 1.0;
+            }
 
-            OptionalDouble maxY = block.getCollisionShape().getBoundingBoxes().stream().mapToDouble(BoundingBox::getMaxY).max();
-            OptionalDouble minY = block.getCollisionShape().getBoundingBoxes().stream().mapToDouble(BoundingBox::getMinY).min();
+            var boxes = block.getCollisionShape().getBoundingBoxes();
+            if (boxes.isEmpty())
+            {
+                // solid but no boxes -> assume full block
+                return y + 1.0;
+            }
 
-            if(minY.isPresent() && maxY.isPresent())
-                return y + minY.getAsDouble() + (maxY.getAsDouble() - minY.getAsDouble());
+            // Choose the collision box under our current X/Z footprint.
+            double bestMaxY = Double.NEGATIVE_INFINITY;
+            boolean found = false;
+
+            for (BoundingBox bb : boxes)
+            {
+                if (lx >= bb.getMinX() && lx <= bb.getMaxX()
+                        && lz >= bb.getMinZ() && lz <= bb.getMaxZ())
+                {
+                    bestMaxY = Math.max(bestMaxY, bb.getMaxY());
+                    found = true;
+                }
+            }
+
+            // Fallback if we weren't inside any box (edge cases)
+            if (!found)
+            {
+                bestMaxY = boxes.stream().mapToDouble(BoundingBox::getMaxY).max().orElse(1.0);
+            }
+
+            return y + bestMaxY;
         }
 
         return world.getHighestBlockYAt(bx, bz);
