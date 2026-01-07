@@ -37,7 +37,7 @@ public class PathTask extends BukkitRunnable
     private static final double gravity = -0.08;
     private static final double jumpVelocity = 0.5;
     private static final double terminalVelocity = -0.5;
-    private static final double stepHeight = 0.5;
+    private static final double stepHeight = 0.55;
 
     private final NPC npc;
     private final Path path;
@@ -333,49 +333,61 @@ public class PathTask extends BukkitRunnable
         if (world == null)
             return new PhysicsResult(0, false);
 
-        double groundY = getGroundY(world, currentPos);
-        boolean onGround = currentPos.getY() <= groundY + 1e-4;
+        // Ground at current position
+        double groundNow = getGroundY(world, currentPos);
 
-        double yChange = 0.0;
+        // Predict the next horizontal position (where we are trying to move this tick)
+        Vector nextPos = currentPos.clone().add(new Vector(movement.getX(), 0, movement.getZ()));
+        double groundNext = getGroundY(world, nextPos);
 
+        boolean onGround = currentPos.getY() <= groundNow + 1e-4;
+
+        // Difference in ground height between where we are and where we're stepping to
+        double stepDy = groundNext - groundNow;
+
+        // --- On ground logic ---
         if (onGround)
         {
-            // Step-up (stairs/slabs)
-            if (toTarget.getY() > 1e-4 && toTarget.getY() <= stepHeight && movement.lengthSquared() > 1e-6)
+            // Snap to current ground to avoid tiny drift
+            if (Math.abs(currentPos.getY() - groundNow) > 1e-5)
+                currentPos.setY(groundNow);
+
+            // Step up small ledges (slabs/stairs)
+            if (stepDy > 1e-4 && stepDy <= stepHeight && movement.lengthSquared() > 1e-6)
             {
-                yChange = Math.min(toTarget.getY(), stepHeight);
+                // Move directly onto the next ground height (no "jump" arc)
                 verticalVelocity = 0.0;
-                return new PhysicsResult(yChange, true);
+                return new PhysicsResult(stepDy, true);
             }
 
-            // Need a real jump
-            if (toTarget.getY() > stepHeight + 1e-3)
+            // Need a real jump for larger elevation
+            if (stepDy > stepHeight + 1e-3)
             {
                 verticalVelocity = jumpVelocity;
-                onGround = false;
+                // fall through into airborne physics below
             }
             else
             {
-                // Snap to ground and stay grounded
+                // No upward movement required; stay grounded
                 verticalVelocity = 0.0;
-                if (Math.abs(currentPos.getY() - groundY) > 1e-5)
-                    currentPos.setY(groundY);
-
                 return new PhysicsResult(0.0, true);
             }
         }
 
-        // Airborne physics
+        // --- Airborne physics ---
         verticalVelocity += gravity;
         if (verticalVelocity < terminalVelocity)
             verticalVelocity = terminalVelocity;
 
-        yChange = verticalVelocity;
+        double yChange = verticalVelocity;
 
-        // Collision with ground
-        if (currentPos.getY() + yChange <= groundY)
+        // Recompute ground under current horizontal position while airborne
+        double groundAir = getGroundY(world, currentPos);
+
+        // Land on ground
+        if (currentPos.getY() + yChange <= groundAir)
         {
-            yChange = groundY - currentPos.getY();
+            yChange = groundAir - currentPos.getY();
             verticalVelocity = 0.0;
             onGround = true;
         }
