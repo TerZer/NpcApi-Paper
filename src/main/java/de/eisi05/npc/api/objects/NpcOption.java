@@ -55,9 +55,8 @@ import java.util.*;
 import java.util.function.Function;
 
 /**
- * Represents a configurable option for an NPC.
- * Each option has a path, a default value, serialization/deserialization logic,
- * and a function to generate a network packet for applying the option.
+ * Represents a configurable option for an NPC. Each option has a path, a default value, serialization/deserialization logic, and a function to generate a
+ * network packet for applying the option.
  *
  * @param <T> The type of the option's value in its usable form.
  * @param <S> The type of the option's value in its serialized form.
@@ -65,8 +64,8 @@ import java.util.function.Function;
 public class NpcOption<T, S extends Serializable>
 {
     /**
-     * NPC option to determine if the NPC should use the skin of the viewing player.
-     * If true, the NPC's skin will be dynamically set to the skin of the player looking at it.
+     * NPC option to determine if the NPC should use the skin of the viewing player. If true, the NPC's skin will be dynamically set to the skin of the player
+     * looking at it.
      */
     public static final NpcOption<Boolean, Boolean> USE_PLAYER_SKIN = new NpcOption<>("use-player-skin", false,
             aBoolean -> aBoolean, aBoolean -> aBoolean,
@@ -93,13 +92,15 @@ public class NpcOption<T, S extends Serializable>
                             Reflections.getField(property, "value").get().equals(Reflections.getField(npcProperty, "value").get())))
                         return null;
 
-                    PropertyMap propertyMap = new PropertyMap(Multimaps.forMap(skin == null ? Map.of() : Map.of("textures", property)));
+                    PropertyMap propertyMap = new PropertyMap(Multimaps.forMap(property == null ? Map.of() : Map.of("textures", property)));
                     GameProfile profile = new GameProfile(npc.getUUID(), "NPC" + npc.getUUID().toString().substring(0, 13), propertyMap);
 
                     Location location = npc.getLocation();
                     MinecraftServer server = ((CraftServer) Bukkit.getServer()).getServer();
                     ServerLevel level = ((CraftWorld) location.getWorld()).getHandle();
+                    int id = npc.serverPlayer.getId();
                     npc.serverPlayer = new ServerPlayer(server, level, profile, ClientInformation.createDefault());
+                    npc.serverPlayer.setId(id);
                     Var.moveEntity(npc.serverPlayer, location.getX(), location.getY(), location.getZ(), location.getYaw(), location.getPitch());
                     npc.serverPlayer.connection = new ServerGamePacketListenerImpl(server, new Connection(PacketFlow.SERVERBOUND), npc.serverPlayer,
                             CommonListenerCookie.createInitial(profile, true));
@@ -123,8 +124,7 @@ public class NpcOption<T, S extends Serializable>
             }).loadBefore(!Versions.isCurrentVersionSmallerThan(Versions.V1_21_9));
 
     /**
-     * NPC option to set a specific skin using a value and signature.
-     * This is ignored if {@link #USE_PLAYER_SKIN} is true.
+     * NPC option to set a specific skin using a value and signature. This is ignored if {@link #USE_PLAYER_SKIN} is true.
      */
     public static final NpcOption<NpcSkin, SkinData> SKIN = new NpcOption<NpcSkin, SkinData>("skin", null,
             skin -> skin, skin -> skin instanceof Skin skin1 ? NpcSkin.of(skin1) : (NpcSkin) skin,
@@ -156,7 +156,9 @@ public class NpcOption<T, S extends Serializable>
                     Location location = npc.getLocation();
                     MinecraftServer server = ((CraftServer) Bukkit.getServer()).getServer();
                     ServerLevel level = ((CraftWorld) location.getWorld()).getHandle();
+                    int id = npc.serverPlayer.getId();
                     npc.serverPlayer = new ServerPlayer(server, level, profile, ClientInformation.createDefault());
+                    npc.serverPlayer.setId(id);
                     Var.moveEntity(npc.serverPlayer, location.getX(), location.getY(), location.getZ(), location.getYaw(), location.getPitch());
                     npc.serverPlayer.connection = new ServerGamePacketListenerImpl(server, new Connection(PacketFlow.SERVERBOUND), npc.serverPlayer,
                             CommonListenerCookie.createInitial(profile, true));
@@ -179,26 +181,26 @@ public class NpcOption<T, S extends Serializable>
             }).loadBefore(!Versions.isCurrentVersionSmallerThan(Versions.V1_21_9));
 
     /**
-     * NPC option to control whether the NPC is shown in the player tab list.
-     * If false, the NPC will be removed from the tab list for the viewing player after a short delay.
+     * NPC option to control whether the NPC is shown in the player tab list. If false, the NPC will be removed from the tab list for the viewing player after a
+     * short delay.
      */
     public static final NpcOption<Boolean, Boolean> SHOW_TAB_LIST = new NpcOption<>("show-tab-list", true,
             aBoolean -> aBoolean, aBoolean -> aBoolean,
             (show, npc, player) ->
             {
-                if(show)
-                    return null;
-
-                new BukkitRunnable()
+                if(!show)
                 {
-                    @Override
-                    public void run()
+                    new BukkitRunnable()
                     {
-                        ((CraftPlayer) player).getHandle().connection.send(new ClientboundPlayerInfoRemovePacket(List.of(npc.getUUID())));
-                    }
-                }.runTaskLater(NpcApi.plugin, 50);
-                return null;
-            });
+                        @Override
+                        public void run()
+                        {
+                            ((CraftPlayer) player).getHandle().connection.send(new ClientboundPlayerInfoRemovePacket(List.of(npc.getUUID())));
+                        }
+                    }.runTaskLater(NpcApi.plugin, 50);
+                }
+                return new ClientboundPlayerInfoUpdatePacket(ClientboundPlayerInfoUpdatePacket.Action.ADD_PLAYER, (ServerPlayer) npc.getServerPlayer());
+            }).loadBefore(true);
 
     /**
      * NPC option to set the simulated latency (ping) of the NPC in the tab list.
@@ -242,8 +244,7 @@ public class NpcOption<T, S extends Serializable>
                 return new ClientboundRemoveEntitiesPacket(((Entity) npc.getNameTag().getDisplay()).getId());
             });
     /**
-     * NPC option to set the equipment worn by the NPC (armor, items in hand).
-     * The map uses {@link EquipmentSlot} as keys and {@link ItemStack} as values.
+     * NPC option to set the equipment worn by the NPC (armor, items in hand). The map uses {@link EquipmentSlot} as keys and {@link ItemStack} as values.
      * Serialized form uses item base64 strings.
      */
     public static final NpcOption<Map<EquipmentSlot, ItemStack>, HashMap<EquipmentSlot, String>> EQUIPMENT = new NpcOption<>("equipment",
@@ -293,8 +294,7 @@ public class NpcOption<T, S extends Serializable>
                 return new ClientboundSetEquipmentPacket(((ServerPlayer) npc.getServerPlayer()).getId(), list);
             });
     /**
-     * NPC option to control which parts of the NPC's skin are visible (e.g., hat, jacket).
-     * For a full list look at {@link SkinParts}.
+     * NPC option to control which parts of the NPC's skin are visible (e.g., hat, jacket). For a full list look at {@link SkinParts}.
      */
     public static final NpcOption<SkinParts[], SkinParts[]> SKIN_PARTS = new NpcOption<>("skin-parts", SkinParts.values(),
             skinParts -> skinParts, skinParts -> skinParts,
@@ -307,16 +307,14 @@ public class NpcOption<T, S extends Serializable>
                 return (Packet<?>) SetEntityDataPacket.create(npcServerPlayer.getId(), data);
             });
     /**
-     * NPC option to make the NPC look at the player if they are within a certain distance.
-     * The value is the maximum distance in blocks. A value of 0 or less disables this.
-     * The actual looking logic is handled by {@link Tasks}.
+     * NPC option to make the NPC look at the player if they are within a certain distance. The value is the maximum distance in blocks. A value of 0 or less
+     * disables this. The actual looking logic is handled by {@link Tasks}.
      */
     public static final NpcOption<Double, Double> LOOK_AT_PLAYER = new NpcOption<>("look-at-player", 0.0,
             distance -> distance, distance -> distance,
             (distance, npc, player) -> null);
     /**
-     * NPC option to make the NPC glow with a specific color.
-     * If null, the glowing effect is removed.
+     * NPC option to make the NPC glow with a specific color. If null, the glowing effect is removed.
      */
     @SuppressWarnings("unchecked")
     public static final NpcOption<ChatFormat, ChatFormat> GLOWING = new NpcOption<>("glowing", null,
@@ -344,12 +342,11 @@ public class NpcOption<T, S extends Serializable>
                 entityData.set(EntityDataSerializers.BYTE.createAccessor(0), (byte) 0x40);
 
                 return new ClientboundBundlePacket(List.of((Packet<? super net.minecraft.network.protocol.game.ClientGamePacketListener>) teamPacket,
-                        (Packet<? super net.minecraft.network.protocol.game.ClientGamePacketListener>) SetEntityDataPacket.create(
-                                npcServerPlayer.getId(), entityData)));
+                        (Packet<? super net.minecraft.network.protocol.game.ClientGamePacketListener>) SetEntityDataPacket.create(npcServerPlayer.getId(),
+                                entityData)));
             });
     /**
-     * NPC option to set the pose of the NPC (e.g., standing, sleeping, swimming).
-     * For a full list look at {@link Pose}.
+     * NPC option to set the pose of the NPC (e.g., standing, sleeping, swimming). For a full list look at {@link Pose}.
      */
     @SuppressWarnings("unchecked")
     public static final NpcOption<Pose, Pose> POSE = new NpcOption<>("pose", Pose.STANDING,
@@ -378,7 +375,7 @@ public class NpcOption<T, S extends Serializable>
                 else if(pose == Pose.SWIMMING)
                     data.set(EntityDataSerializers.BYTE.createAccessor(0), (byte) (npc.getOption(NpcOption.GLOWING) != null ? 0x50 : 0x10));
                 else
-                    data.set(EntityDataSerializers.BYTE.createAccessor(0), (byte) 0);
+                    data.set(EntityDataSerializers.BYTE.createAccessor(0), (byte) (npc.getOption(NpcOption.GLOWING) != null ? 0x40 : 0));
 
                 if(pose == Pose.SPIN_ATTACK)
                 {
@@ -393,13 +390,13 @@ public class NpcOption<T, S extends Serializable>
                 {
                     Display.TextDisplay textDisplay = new Display.TextDisplay(EntityType.TEXT_DISPLAY, npc.serverPlayer.level());
                     textDisplay.absSnapTo(npc.getLocation().getX(), npc.getLocation().getY(), npc.getLocation().getZ());
-                    npc.toDeleteEntities.add(textDisplay.getId());
+                    npc.toDeleteEntities.put("sit", textDisplay.getId());
 
                     Packet<? super ClientGamePacketListener> addEntityPacket = textDisplay.getAddEntityPacket(
                             Var.getServerEntity(textDisplay, npc.serverPlayer.level()));
 
                     SynchedEntityData entityData = textDisplay.getEntityData();
-                    entityData.set(EntityDataSerializers.BYTE.createAccessor(0), (byte) 0x20);
+                    entityData.set(EntityDataSerializers.BYTE.createAccessor(0), (byte) (npc.getOption(NpcOption.GLOWING) != null ? 0x60 : 0x20));
                     Packet<? super ClientGamePacketListener> entityDataPacket = (Packet<? super ClientGamePacketListener>) SetEntityDataPacket.create(
                             textDisplay.getId(), entityData);
 
@@ -411,13 +408,24 @@ public class NpcOption<T, S extends Serializable>
 
                     return new ClientboundBundlePacket(List.of(addEntityPacket, entityDataPacket, passengerPacket, rotateHeadPacket));
                 }
+                else
+                {
+                    Integer toDelete = npc.toDeleteEntities.get("sit");
 
-                return packet == null ? (Packet<?>) SetEntityDataPacket.create(npcServerPlayer.getId(), data) : new ClientboundBundlePacket(
-                        List.of(packet, (Packet<? super ClientGamePacketListener>) SetEntityDataPacket.create(npcServerPlayer.getId(), data)));
+                    if(toDelete == null)
+                        return packet == null ? (Packet<?>) SetEntityDataPacket.create(npcServerPlayer.getId(), data) :
+                                new ClientboundBundlePacket(
+                                        List.of((Packet<? super ClientGamePacketListener>) SetEntityDataPacket.create(npcServerPlayer.getId(), data), packet));
+
+                    npc.toDeleteEntities.remove("sit");
+                    return packet == null ? new ClientboundBundlePacket(List.of(new ClientboundRemoveEntitiesPacket(toDelete),
+                            (Packet<? super ClientGamePacketListener>) SetEntityDataPacket.create(npcServerPlayer.getId(), data)))
+                            : new ClientboundBundlePacket(List.of(new ClientboundRemoveEntitiesPacket(toDelete),
+                            (Packet<? super ClientGamePacketListener>) SetEntityDataPacket.create(npcServerPlayer.getId(), data), packet));
+                }
             });
     /**
-     * NPC option to set the scale (size) of the NPC.
-     * A value of 1.0 is normal size. Requires Minecraft 1.20.6 or newer.
+     * NPC option to set the scale (size) of the NPC. A value of 1.0 is normal size. Requires Minecraft 1.20.6 or newer.
      */
     public static final NpcOption<Double, Double> SCALE = new NpcOption<>("scale", 1.0,
             scale -> scale, scale -> scale,
@@ -434,8 +442,7 @@ public class NpcOption<T, S extends Serializable>
     /**
      * NPC option to control the position of the NPC in the TAB list.
      * <p>
-     * Only works on versions older than 1.21.2.
-     * On 1.21.2 and newer, this option has no effect.
+     * Only works on versions older than 1.21.2. On 1.21.2 and newer, this option has no effect.
      * </p>
      */
     public static final NpcOption<Integer, Integer> LIST_ORDER = new NpcOption<>("list-order", 0,
@@ -452,18 +459,16 @@ public class NpcOption<T, S extends Serializable>
             }).since(Versions.V1_21_2);
 
     /**
-     * NPC option to control if the NPC is enabled (visible and interactable).
-     * If false, a "DISABLED" marker may be shown.
-     * This is an internal option, typically not directly set by users but controlled by {@link NPC#setEnabled(boolean)}.
+     * NPC option to control if the NPC is enabled (visible and interactable). If false, a "DISABLED" marker may be shown. This is an internal option, typically
+     * not directly set by users but controlled by {@link NPC#setEnabled(boolean)}.
      */
     static final NpcOption<Boolean, Boolean> ENABLED = new NpcOption<>("enabled", false,
             aBoolean -> aBoolean, aBoolean -> aBoolean,
             (enabled, npc, player) -> null);
 
     /**
-     * NPC option to control if the NPC is enabled (visible and interactable).
-     * If false, a "DISABLED" marker may be shown.
-     * This is an internal option, typically not directly set by users but controlled by {@link NPC#setEnabled(boolean)}.
+     * NPC option to control if the NPC is enabled (visible and interactable). If false, a "DISABLED" marker may be shown. This is an internal option, typically
+     * not directly set by users but controlled by {@link NPC#setEnabled(boolean)}.
      */
     static final NpcOption<Boolean, Boolean> EDITABLE = new NpcOption<>("editable", false,
             aBoolean -> aBoolean, aBoolean -> aBoolean,
@@ -487,7 +492,7 @@ public class NpcOption<T, S extends Serializable>
      * @param packet       The packet generation function. Must not be null.
      */
     private NpcOption(@NotNull String path, @Nullable T defaultValue, @NotNull Function<T, S> serializer, @NotNull Function<S, T> deserializer,
-            @NotNull TriFunction<T, NPC, Player, Packet<?>> packet)
+                      @NotNull TriFunction<T, NPC, Player, Packet<?>> packet)
     {
         this.path = path;
         this.defaultValue = defaultValue;
@@ -512,7 +517,8 @@ public class NpcOption<T, S extends Serializable>
             try
             {
                 values[i] = (NpcOption<?, ?>) fields.get(i).get(null);
-            } catch(IllegalAccessException e)
+            }
+            catch(IllegalAccessException e)
             {
             }
         }
@@ -532,8 +538,7 @@ public class NpcOption<T, S extends Serializable>
     }
 
     /**
-     * Sets the minimum Minecraft version required for this option.
-     * Used for options that are only available in newer versions of the game.
+     * Sets the minimum Minecraft version required for this option. Used for options that are only available in newer versions of the game.
      *
      * @param since The minimum {@link Versions} required. Must not be null.
      * @return This {@link NpcOption} instance for method chaining.
@@ -556,9 +561,8 @@ public class NpcOption<T, S extends Serializable>
     }
 
     /**
-     * Checks if this NPC option is compatible with the current server version.
-     * An option is compatible if the current server version is greater than or equal to
-     * the version specified by {@link #since()}.
+     * Checks if this NPC option is compatible with the current server version. An option is compatible if the current server version is greater than or equal
+     * to the version specified by {@link #since()}.
      *
      * @return {@code true} if the option is compatible, {@code false} otherwise.
      */
@@ -602,8 +606,7 @@ public class NpcOption<T, S extends Serializable>
      *
      * @param var1 The value to serialize. Can be null.
      * @return The serialized value. Can be null if the input or serializer result is null.
-     * @throws RuntimeException if a {@link ClassCastException} occurs during serialization,
-     *                          indicating an incorrect type was passed.
+     * @throws RuntimeException if a {@link ClassCastException} occurs during serialization, indicating an incorrect type was passed.
      */
     @SuppressWarnings("unchecked")
     public @Nullable S serialize(@Nullable Object var1)
@@ -611,7 +614,8 @@ public class NpcOption<T, S extends Serializable>
         try
         {
             return serializer.apply((T) var1);
-        } catch(ClassCastException e)
+        }
+        catch(ClassCastException e)
         {
             throw new RuntimeException(path + " -> " + var1);
         }
@@ -629,14 +633,13 @@ public class NpcOption<T, S extends Serializable>
     }
 
     /**
-     * Generates the network packet(s) needed to apply this option's value to an NPC for a specific player.
-     * The method checks for version compatibility before generating the packet.
+     * Generates the network packet(s) needed to apply this option's value to an NPC for a specific player. The method checks for version compatibility before
+     * generating the packet.
      *
      * @param object The value of the option to apply. Can be null.
      * @param npc    The {@link NPC} to apply the option to. Must not be null.
      * @param player The {@link Player} who will receive the update. Must not be null.
-     * @return An {@link Optional} containing the {@link Packet} if one is generated and the option is compatible,
-     * otherwise an empty Optional.
+     * @return An {@link Optional} containing the {@link Packet} if one is generated and the option is compatible, otherwise an empty Optional.
      */
     @SuppressWarnings("unchecked")
     public @NotNull Optional<Object> getPacket(@Nullable Object object, @NotNull NPC npc, Player player)

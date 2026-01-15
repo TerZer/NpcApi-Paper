@@ -12,7 +12,7 @@ import java.util.UUID;
 
 public class TeamManager
 {
-    private static final Map<UUID, Map<String, PlayerTeam>> teams = new HashMap<>();
+    public static final Map<UUID, Map<String, PlayerTeam>> teams = new HashMap<>();
 
     public static @NotNull Object create(@NotNull Player player, @NotNull String name)
     {
@@ -49,5 +49,10 @@ public class TeamManager
     {
         for(var entry : teams.entrySet())
             entry.getValue().keySet().removeIf(s -> s.equals(name));
+    }
+
+    public static void clear(UUID uuid, String name)
+    {
+        teams.get(uuid).remove(name);
     }
 }
