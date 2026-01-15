@@ -74,7 +74,7 @@ public class NPC extends NpcHolder
     private final Map<NpcOption<?, ?>, Object> options;
     private final CustomNameTag nameTag;
     private final Path npcPath;
-    private final Map<UUID, PathTask> pathTasks = new HashMap<>();
+    private PathTask pathTask = null;
     ServerPlayer serverPlayer;
     private NpcName name;
     private Location location;
@@ -685,14 +685,8 @@ public class NPC extends NpcHolder
     public @NotNull BukkitTask walkTo(@NotNull de.eisi05.npc.api.pathfinding.Path path, double walkSpeed,
                                       boolean changeRealLocation, @Nullable Consumer<WalkingResult> onEnd, @Nullable Player... viewers)
     {
-        if(viewers != null)
-        {
-            for(Player player : viewers)
-            {
-                if(isWalking(player))
-                    cancelWalking(player);
-            }
-        }
+        if(isWalking())
+            cancelWalking();
 
         final double speed = Math.max(Math.min(walkSpeed, 1), 0.1);
 
@@ -707,11 +701,7 @@ public class NPC extends NpcHolder
                 .updateRealLocation(event.isChangeRealLocation())
                 .callback(onEnd).build();
 
-        if(viewers != null)
-        {
-            for(Player player : viewers)
-                pathTasks.put(player.getUniqueId(), pathTask);
-        }
+        this.pathTask = pathTask;
 
         return pathTask.runTaskTimer(NpcApi.plugin, 1L, 1L);
     }
@@ -723,9 +713,9 @@ public class NPC extends NpcHolder
      *
      * @return true if the NPC is still walking, false otherwise
      */
-    public boolean isWalking(@NotNull Player viewer)
+    public boolean isWalking()
     {
-        return pathTasks.containsKey(viewer.getUniqueId()) && !pathTasks.get(viewer.getUniqueId()).isFinished();
+        return this.pathTask != null && this.pathTask.isFinished();
     }
 
     /**
@@ -733,12 +723,12 @@ public class NPC extends NpcHolder
      * <p>
      * If the NPC is walking, the path task is canceled and cleared. If no walking task is active, this method has no effect.
      */
-    public void cancelWalking(@NotNull Player viewer)
+    public void cancelWalking()
     {
-        if(!pathTasks.containsKey(viewer.getUniqueId()))
+        if(this.pathTask == null)
             return;
 
-        pathTasks.remove(viewer.getUniqueId()).cancel();
+        this.pathTask.cancel();
     }
 
     /**
