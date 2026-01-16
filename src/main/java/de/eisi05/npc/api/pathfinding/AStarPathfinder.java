@@ -266,12 +266,61 @@ public class AStarPathfinder
         List<Location> path = new ArrayList<>();
         while (current != null)
         {
-            // Node.y is FLOOR Y; feet are at floorY + 1
-            path.add(new Location(world, current.x + 0.5, current.y + 1.0, current.z + 0.5));
+            double feetY = feetYAt(current.x, current.y, current.z);
+            path.add(new Location(world, current.x + 0.5, feetY, current.z + 0.5));
             current = current.parent;
         }
         Collections.reverse(path);
         return path;
+    }
+
+    /**
+     * Returns the entity feet Y when standing on top of the floor block at (x,floorY,z),
+     * using the collision shape at the block center (0.5, 0.5).
+     */
+    private double feetYAt(int x, int floorY, int z)
+    {
+        Block floor = world.getBlockAt(x, floorY, z);
+        return floorY + topSurfaceAt(floor, 0.5, 0.5);
+    }
+
+    /**
+     * Returns the top surface height inside the block [0..1] at local x/z.
+     * For a full block -> 1.0
+     * For a bottom slab -> 0.5
+     * For stairs, etc -> depends on collision shape at that point.
+     */
+    private double topSurfaceAt(@NotNull Block block, double lx, double lz)
+    {
+        // If the server returns no boxes, assume full height
+        Collection<BoundingBox> boxes = block.getCollisionShape().getBoundingBoxes();
+        if (boxes.isEmpty())
+            return 1.0;
+
+        double bestTop = -1.0;
+
+        for (BoundingBox bb : boxes)
+        {
+            // Check if this collision box covers our x/z point
+            if (lx >= bb.getMinX() && lx <= bb.getMaxX()
+                    && lz >= bb.getMinZ() && lz <= bb.getMaxZ())
+            {
+                bestTop = Math.max(bestTop, bb.getMaxY());
+            }
+        }
+
+        // If nothing matched (edge cases), fall back to the maximum box top
+        if (bestTop < 0.0)
+        {
+            for (BoundingBox bb : boxes)
+                bestTop = Math.max(bestTop, bb.getMaxY());
+        }
+
+        // Safety fallback
+        if (bestTop <= 0.0)
+            return 1.0;
+
+        return bestTop;
     }
 
     /**
@@ -280,7 +329,7 @@ public class AStarPathfinder
     private double distanceSq(@NotNull Node n, @NotNull Location l)
     {
         double dx = (n.x + 0.5) - l.getX();
-        double dy = (n.y + 1.0) - l.getY(); // node feet Y
+        double dy = feetYAt(n.x, n.y, n.z) - l.getY();
         double dz = (n.z + 0.5) - l.getZ();
         return dx * dx + dy * dy + dz * dz;
     }
@@ -312,9 +361,8 @@ public class AStarPathfinder
 
         public void calculateH(@NotNull Location end)
         {
-            // heuristic from node feet to end feet (use doubles for stability)
             double dx = (x + 0.5) - end.getX();
-            double dy = (y + 1.0) - end.getY();
+            double dy = (y + 1.0) - end.getY(); // approximate, good enough for heuristic
             double dz = (z + 0.5) - end.getZ();
             this.hCost = Math.sqrt(dx * dx + dy * dy + dz * dz);
         }
